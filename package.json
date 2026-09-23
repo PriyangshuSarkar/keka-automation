@@ -1,0 +1,21 @@
+{
+  "name": "keka-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local automation that clocks in/out on Keka via an already-running Brave instance (CDP).",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "tsc",
+    "clock-in": "bun src/clock-in.ts",
+    "clock-out": "bun src/clock-out.ts",
+    "login": "bun src/login.ts",
+    "status": "bun src/status.ts"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^5.9.3"
+  }
+}
