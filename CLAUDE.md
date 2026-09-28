@@ -25,9 +25,18 @@ relevant script against a real Brave session.
 
 **Entry point scripts** (`src/clock-in.ts`, `src/clock-out.ts`, `src/status.ts`, `src/login.ts`) are each
 independently runnable (`if (require.main === module)` / bare `main()`) and follow the same shape: get a
-`Page` via `getPage()`, drive it, call `logSuccess()` on the success path, and on failure call `logError()`
-then `console.error` + `process.exit(1)`. `clock-in.ts`/`clock-out.ts` additionally short-circuit at the top
-of `main()` via `hasSucceededToday()` (see `logger.ts` below) before touching the browser at all.
+`Page` via `getPage()` inside a `try` block, drive it, call `logSuccess()` on the success path, always
+`page.close()` in a `finally` (swallowing close errors so they can't mask the real one), and on failure
+call `logError()` then `console.error` + `process.exit(1)`. `clock-in.ts`/`clock-out.ts` additionally
+short-circuit at the top of `main()` via `hasSucceededToday()` (see `logger.ts` below) before touching the
+browser at all; `clock-out.ts` also bails out early via `hasInternet()` (see `network.ts` below) before
+launching Brave if there's no connectivity.
+
+**Clocking out is a two-step confirm in Keka's UI** (clock-in has no such step): clicking the initial
+"Web Clock-out" control doesn't submit anything — it swaps to a "Clock-out"/"Cancel" pair, and only
+clicking the second "Clock-out" button actually confirms it. `clock-out.ts` does both clicks in sequence;
+missing the second click was a real production bug (the run silently no-oped, logging nothing, since
+`waitForStatus` just timed out waiting for a status change that was never going to happen).
 
 **`src/lib/browser.ts`** — `getPage()` is the shared entry point every script uses to obtain a Playwright
 `Page`:
@@ -36,20 +45,32 @@ of `main()` via `hasSucceededToday()` (see `logger.ts` below) before touching th
    takes effect on Brave's *first* process launch — if Brave was opened some other way first, it must be
    fully quit before this script can attach.
 2. `pollUntil()` (see below) waits for the CDP endpoint to come up.
-3. `chromium.connectOverCDP()` attaches, and an existing tab whose URL includes `keka.com` is reused
-   (falling back to a new tab) rather than opening a fresh tab every run. The tab is brought to the
-   foreground because Chrome throttles JS timers in background tabs, which can stall the SPA past wait
-   timeouts.
+3. `chromium.connectOverCDP()` attaches, and opens a new tab. An existing tab whose URL includes
+   `keka.com` is reused only as a fallback (each script closes its own tab on the way out, so normally
+   there's nothing to find — this just stops a failed `close()` from leaking tabs on top of each other).
+   The tab is brought to the foreground because Chrome throttles JS timers in background tabs, which can
+   stall the SPA's render past our wait timeouts.
 
 **`src/lib/poll.ts`** — `pollUntil(fn, predicate, opts)` is the shared retry-until-timeout primitive used
 by both CDP-endpoint polling and attendance-status polling. It swallows errors thrown by `fn()` while
 polling (treating them as "not ready yet") and only throws `opts.timeoutMessage` once `opts.timeoutMs`
 elapses.
 
-**`src/status.ts`** — `readStatus()` reads the clock-in/out button's label via `getClockControl()`
-(`page.getByText(/web clock-(in|out)/i)`) to infer `AttendanceStatus`. `waitForStatus()` polls the *same*
-page in place after a click (no navigation/reload) — the SPA updates the clock control reactively, and
-reloading would abort the in-flight clock-in/out request before the server responds.
+**`src/lib/network.ts`** — `hasInternet(timeoutMs = 5000)` does a short-timeout `fetch` to
+`https://www.gstatic.com/generate_204` (a lightweight, high-uptime endpoint used for connectivity checks
+generally, so a Keka-specific outage isn't misreported as "no internet"). Used by `clock-out.ts` to fail
+fast with a clear error instead of launching Brave only to hit a navigation error deep inside.
+
+**`src/status.ts`** — `getClockControl()` locates the clock-in/out control via
+`page.getByText(/web clock-(in|out)/i)`. `getAttendanceStatus()` reads it with two safeguards learned the
+hard way: the SPA can briefly render a stale value before its real status has loaded, and a single read
+can silently trust that stale snapshot since it doesn't throw — so it requires **two reads 1.5s apart to
+agree** before trusting the result. It also retries (default 3 attempts) on a genuine `page.reload()` if
+the reads disagree or the control never renders — note `page.goto()` to this same hash-only URL is a
+same-document no-op once already on it, so only the very first navigation uses `goto()`; retries must use
+`reload()` or they silently re-read the same DOM. `waitForStatus()` polls the *same* page in place after a
+click (no navigation/reload) with a short 2s per-read timeout — the SPA updates the clock control
+reactively, and reloading here would abort the in-flight clock-in/out request before the server responds.
 
 **`src/lib/logger.ts`** — separate `error`/`success` logs under `logs/` at the repo root, each shaped as:
 
@@ -74,8 +95,10 @@ logs/<error|success>/<YYYY-MM-DD>/<HH-MM-SS>-<context>.log   # full detail for t
 
 ## Scheduling (launchd)
 
-`clock-in.ts` and `clock-out.ts` are run automatically by two per-user launchd agents (not tracked in this
-repo — installed at `~/Library/LaunchAgents/`), each firing 4x/day, Mon–Sat:
+`clock-in.ts` and `clock-out.ts` are run automatically by two per-user launchd agents, each firing 4x/day,
+Mon–Sat. The canonical plists live in this repo at `launchd/` and are symlinked into
+`~/Library/LaunchAgents/` (launchd itself only reads from that real path, and won't follow a symlinked
+*directory*, but a symlinked *file* inside it works fine) — edit the repo copy, not the symlink:
 
 - `com.user.keka-clockin.plist` — `bun src/clock-in.ts` at 09:00, 09:30, 10:00, 10:30
 - `com.user.keka-clockout.plist` — `bun src/clock-out.ts` at 20:00, 20:30, 21:00, 21:30
@@ -95,7 +118,8 @@ to succeed unattended — there's no interactive terminal to fall back on if it 
 exist on disk before (re)loading either agent — launchd does not create intermediate directories for
 `StandardOutPath`/`StandardErrorPath` itself.
 
-Reload an agent after editing its plist: `launchctl unload ~/Library/LaunchAgents/com.user.keka-clockin.plist && launchctl load ~/Library/LaunchAgents/com.user.keka-clockin.plist`.
+Reload an agent after editing its plist (in `launchd/`, followed through the symlink):
+`launchctl unload ~/Library/LaunchAgents/com.user.keka-clockin.plist && launchctl load ~/Library/LaunchAgents/com.user.keka-clockin.plist`.
 
 ## Notes
 

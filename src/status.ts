@@ -20,15 +20,27 @@ async function readStatus(page: Page, timeoutMs = 10000): Promise<AttendanceStat
 }
 
 // A page load can land on a SPA that never renders the clock control (e.g.
-// a stuck state left over from a network blip) — a plain single-shot check
-// would burn the whole scheduled slot on that one bad load. Reload and
-// retry a few times before giving up.
+// a stuck state left over from a network blip), or briefly render a stale
+// value before its real status has loaded — a single read can silently
+// trust that stale snapshot since it doesn't throw. Require two reads
+// 1.5s apart to agree before trusting the result, and reload (a real one:
+// page.goto to this same hash-only URL is a same-document no-op once
+// we're already on it, so retries beyond the first use page.reload) a
+// few times before giving up.
 export async function getAttendanceStatus(page: Page, attempts = 3): Promise<AttendanceStatus> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    await page.goto(ATTENDANCE_URL, { waitUntil: "domcontentloaded" });
+    if (attempt === 0) {
+      await page.goto(ATTENDANCE_URL, { waitUntil: "domcontentloaded" });
+    } else {
+      await page.reload({ waitUntil: "domcontentloaded" });
+    }
     try {
-      return await readStatus(page);
+      const first = await readStatus(page);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const second = await readStatus(page);
+      if (first === second) return first;
+      lastError = new Error(`Unstable status read: "${first}" then "${second}"`);
     } catch (err) {
       lastError = err;
     }
