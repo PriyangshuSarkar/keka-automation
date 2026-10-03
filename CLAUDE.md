@@ -40,10 +40,13 @@ missing the second click was a real production bug (the run silently no-oped, lo
 
 **`src/lib/browser.ts`** — `getPage()` is the shared entry point every script uses to obtain a Playwright
 `Page`:
-1. `launchBrave()` shells out to `brave-launcher.sh`, which relaunches Brave with
-   `--remote-debugging-port=9222` on a fixed profile (`Default`, the "Pointo" profile). The CDP flag only
-   takes effect on Brave's *first* process launch — if Brave was opened some other way first, it must be
-   fully quit before this script can attach.
+1. If the CDP endpoint is already up, Brave is reused as-is. Otherwise `launchBrave()` shells out to
+   `brave-launcher.sh`, which launches Brave with `--remote-debugging-port=9222` on a fixed profile
+   (`Default`, the "Pointo" profile). The CDP flag only takes effect on Brave's *first* process launch, so
+   if Brave is already running without it (opened from the Dock, or relaunched by Brave's own auto-updater,
+   which drops custom flags), `getPage()` first gracefully quits Brave via AppleScript (like Cmd+Q, so the
+   session is restored) and waits for it to exit before launching. This was a real production bug: after
+   an auto-update relaunch, every scheduled run failed with "Timed out waiting for Brave's CDP endpoint".
 2. `pollUntil()` (see below) waits for the CDP endpoint to come up.
 3. `chromium.connectOverCDP()` attaches, and opens a new tab. An existing tab whose URL includes
    `keka.com` is reused only as a fallback (each script closes its own tab on the way out, so normally

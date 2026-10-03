@@ -11,6 +11,36 @@ export function launchBrave(): void {
   execFileSync(join(PROJECT_ROOT, "brave-launcher.sh"), { stdio: "inherit" });
 }
 
+async function isCdpUp(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${url}/json/version`, { signal: AbortSignal.timeout(2000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function isBraveRunning(): boolean {
+  try {
+    execFileSync("pgrep", ["-x", "Brave Browser"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Gracefully quit Brave (same as Cmd+Q, so the session is restored on
+// relaunch) and wait for its main process to actually exit — `open -a`
+// against a still-exiting Brave would just reattach to it, flagless.
+async function quitBrave(timeoutMs = 30000): Promise<void> {
+  execFileSync("osascript", ["-e", 'tell application "Brave Browser" to quit']);
+  await pollUntil(async () => isBraveRunning(), (running) => !running, {
+    timeoutMs,
+    intervalMs: 500,
+    timeoutMessage: "Timed out waiting for Brave to quit",
+  });
+}
+
 async function waitForCdp(url: string, timeoutMs = 15000): Promise<void> {
   await pollUntil(() => fetch(`${url}/json/version`), (res) => res.ok, {
     timeoutMs,
@@ -20,7 +50,17 @@ async function waitForCdp(url: string, timeoutMs = 15000): Promise<void> {
 }
 
 export async function getPage(): Promise<Page> {
-  launchBrave();
+  if (!(await isCdpUp(CDP_URL))) {
+    // --remote-debugging-port only applies to Brave's first process launch, so
+    // if Brave is already running without it (opened from the Dock, or
+    // relaunched by its own auto-updater, which drops custom flags) the
+    // launcher's `open -a` is a no-op and CDP never comes up. Restart it.
+    if (isBraveRunning()) {
+      console.log("Brave is running without CDP enabled, restarting it");
+      await quitBrave();
+    }
+    launchBrave();
+  }
   await waitForCdp(CDP_URL);
 
   const browser = await chromium.connectOverCDP(CDP_URL);
