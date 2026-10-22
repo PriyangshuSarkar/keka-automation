@@ -37,7 +37,10 @@ async function quitBrave(timeoutMs = 30000): Promise<void> {
   await pollUntil(async () => isBraveRunning(), (running) => !running, {
     timeoutMs,
     intervalMs: 500,
-    timeoutMessage: "Timed out waiting for Brave to quit",
+    timeoutMessage:
+      "Timed out waiting for Brave to quit — it's running without the CDP flag and ignored the quit request " +
+      "(likely a close-tabs/download prompt). Fix: quit Brave manually (Cmd+Q, confirm any dialog), then " +
+      "reopen it via ./brave-launcher.sh and rerun.",
   });
 }
 
