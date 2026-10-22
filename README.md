@@ -10,7 +10,7 @@ repeated scheduled triggers stay cheap, and a network pre-flight check before cl
 
 ## How it works
 
-1. `brave-launcher.sh` (re)launches Brave with `--remote-debugging-port=9222` on your normal
+1. `brave-launcher.sh` (re)launches Brave with `--remote-debugging-port=9223` on your normal
    ("Default"/"Pointo") profile.
 2. The script connects to that running Brave instance over CDP (via `playwright-core`), opens the
    Keka attendance page, and reads the current clock-in/out state directly from the page.
@@ -140,7 +140,7 @@ the automation won't re-detect that as a new day's first success.
   actually submits it. Clock-in has no equivalent step. This tripped up an earlier version of this
   automation for a full day before being caught.
 - **The CDP debug port only applies on Brave's first launch.** If Brave is already running (opened
-  normally, not via `brave-launcher.sh`), relaunching it with `--remote-debugging-port=9222` has no
+  normally, not via `brave-launcher.sh`), relaunching it with `--remote-debugging-port=9223` has no
   effect on the already-running process — the port simply won't be reachable until Brave is fully
   quit and restarted through the launcher script.
 - **The attendance page can briefly show a stale status right after loading**, before its real state

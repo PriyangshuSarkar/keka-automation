@@ -41,7 +41,7 @@ missing the second click was a real production bug (the run silently no-oped, lo
 **`src/lib/browser.ts`** — `getPage()` is the shared entry point every script uses to obtain a Playwright
 `Page`:
 1. If the CDP endpoint is already up, Brave is reused as-is. Otherwise `launchBrave()` shells out to
-   `brave-launcher.sh`, which launches Brave with `--remote-debugging-port=9222` on a fixed profile
+   `brave-launcher.sh`, which launches Brave with `--remote-debugging-port=9223` on a fixed profile
    (`Default`, the "Pointo" profile). The CDP flag only takes effect on Brave's *first* process launch, so
    if Brave is already running without it (opened from the Dock, or relaunched by Brave's own auto-updater,
    which drops custom flags), `getPage()` first gracefully quits Brave via AppleScript (like Cmd+Q, so the

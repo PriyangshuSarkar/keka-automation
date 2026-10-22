@@ -3,7 +3,7 @@ import { join } from "path";
 import { chromium, Page } from "playwright-core";
 import { pollUntil } from "./poll";
 
-const CDP_URL = "http://localhost:9222";
+const CDP_URL = "http://localhost:9223";
 
 const PROJECT_ROOT = join(__dirname, "..", "..");
 
