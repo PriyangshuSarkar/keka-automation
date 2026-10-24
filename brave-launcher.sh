@@ -16,4 +16,4 @@ PROFILE_DIR="Default"
 
 open -a "Brave Browser" --args \
   --profile-directory="$PROFILE_DIR" \
-  --remote-debugging-port=9222
+  --remote-debugging-port=9223
